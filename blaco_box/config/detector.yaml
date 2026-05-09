@@ -1,0 +1,23 @@
+square:
+  side_length_mm: 100.0
+  line_width_mm: 3.0
+
+preprocess:
+  bilateral_d: 5
+  bilateral_sigma_color: 50
+  bilateral_sigma_space: 50
+  threshold_value: 50
+  morph_kernel: 3
+
+filter:
+  min_area_px: 1500
+  approx_epsilon_ratio: 0.02
+  max_aspect_ratio_diff: 0.35
+
+quality:
+  max_reprojection_error_px: 1.5
+
+runtime:
+  camera_id: 0
+  width: 1280
+  height: 720
