@@ -3,6 +3,11 @@
 # 功能：摄像头固定在机械臂末端，检测末端是否对准黑色边框中心线，
 #       并判断黑色像素在中心框的哪个方向（上/下/左/右），辅助机械臂循迹。
 
+# 相机坐标系定义：
+# - x 轴：水平向右为正
+# - y 轴：竖直向下为正
+# - z 轴：垂直向外（远离相机）为正
+
 import time
 
 import image
@@ -53,7 +58,14 @@ V_FLIP = False
 #
 # 拐角检测: 任意两个相邻方向同时有黑
 #   up & left / up & right / down & left / down & right
-经过拐角 = 0
+
+# 经过几个拐角了
+around_corner = 0
+
+# up and down: 0 , left and right: 1
+first_straight = -1
+
+first_corner = -1
 
 
 def is_corner(direction_results):
@@ -159,16 +171,18 @@ def calculate_target_offset(has_white, direction_results):
     x/y 方向由状态机决定符号，z 方向由中心框偏离判断。
     每帧检测拐角，检测到则推进状态。
     """
-    global has_corner 
-
-    has_corner = 0
-    
+    global first_straight, first_corner, around_corner
 
     target = [0.0, 0.0, 0.0]
     up = direction_results["up"]
     down = direction_results["down"]
     left = direction_results["left"]
     right = direction_results["right"]
+
+    # 转过一圈，停止
+    if around_corner == 5:
+        target[1] = 0.0
+        target[0] = 0.0
 
     # ---- z 方向：中心框偏离判断（沿用原有逻辑）----
     if has_white:
@@ -180,15 +194,86 @@ def calculate_target_offset(has_white, direction_results):
     else:
         target[2] = 0.0
 
-    # ---- 拐角检测 & 状态转移 ----
-    corner_kind = is_corner(direction_results)
+    if around_corner == 0:
+        if up and down:
+            first_straight = 0
+            target[1] = -0.01
+        elif left and right:
+            first_straight = 1
+            target[0] = 0.01
+        first_corner = is_corner(direction_results)        
 
+    elif around_corner == 1:
+        if first_straight == 0:
+            if first_corner == 4:
+                target[0] = 0.01
+                target[1] = 0.0
+            elif first_corner == 3:
+                target[0] = -0.01
+                target[1] = 0.0
 
+        elif first_straight == 1:
+            if first_corner == 3:
+                target[1] = 0.01
+                target[0] = 0.0
+            elif first_corner == 1:
+                target[1] = -0.01
+                target[0] = 0.0
 
+    elif around_corner == 2:
+        if first_straight == 0:
+            if first_corner == 4:
+                target[1] = 0.01
+                target[0] = 0.0
+            elif first_corner == 3:
+                target[1] = 0.01
+                target[0] = 0.0
 
+        elif first_straight == 1:
+            if first_corner == 3:
+                target[0] = -0.01
+                target[1] = 0.0
+            elif first_corner == 1:
+                target[0] = -0.01
+                target[1] = 0.0
 
+    elif around_corner == 3:
+        if first_straight == 0:
+            if first_corner == 4:
+                target[1] = 0.0
+                target[0] = -0.01
+            elif first_corner == 3:
+                target[1] = 0.0
+                target[0] = 0.01
 
-    
+        elif first_straight == 1:
+            if first_corner == 3:
+                target[0] = 0.0
+                target[1] = -0.01
+            elif first_corner == 1:
+                target[0] = 0.0
+                target[1] = 0.01
+        
+    elif around_corner == 4:
+        if first_straight == 0:
+            if first_corner == 4:
+                target[0] = 0.0
+                target[1] = -0.01
+            elif first_corner == 3:
+                target[1] = -0.01
+                target[0] = 0.0
+
+        elif first_straight == 1:
+            if first_corner == 3:
+                target[0] = 0.01
+                target[1] = 0.0
+            elif first_corner == 1:
+                target[1] = 0.0
+                target[0] = 0.01
+
+    # 经过拐角
+    if is_corner(direction_results) >= 0:
+        around_corner += 1    
 
     return target
 
@@ -292,15 +377,13 @@ def main():
                 color=255, scale=1)
 
             # 串口输出检测结果
-            print("center_white=%s up=%s down=%s left=%s right=%s target=[%.2f,%.2f,%.2f] fps=%.1f" % (
-                has_white,
-                direction_results["up"],
-                direction_results["down"],
-                direction_results["left"],
-                direction_results["right"],
-                target[0], target[1], target[2],
+            print("target=[%.2f,%.2f,%.2f] fps=%.1f" % (
+                target[0],
+                target[1],
+                target[2],
                 clock.fps(),
             ))
+
 
             Display.show_image(img)
 
