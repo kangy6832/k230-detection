@@ -35,14 +35,14 @@ GRAYSCALE_THRESHOLD = [(0, 64)]
 
 # ---------- 运动参数 ----------
 FOLLOW_SPEED    = 0.01     # 正常循线时的前进速度（沿运动方向的主速度）
-CORNER_SPEED    = 0.06     # 拐角过渡时新方向的速度（越大拐角走得越快，可配置接口）
-CENTERING_GAIN  = 0.0001  # 对中修正增益（质心偏移量 × 增益 = 修正速度）
-CENTERING_FILTER_ALPHA = 0.5  # 质心低通滤波系数 (0~1)，越小越平滑但响应越慢
+CORNER_SPEED    = 0.03     # 拐角过渡时新方向的速度（越大拐角走得越快，可配置接口）
+CENTERING_GAIN  = 0.00005  # 对中修正增益（质心偏移量 × 增益 = 修正速度）
+CENTERING_FILTER_ALPHA = 0.3  # 质心低通滤波系数 (0~1)，越小越平滑但响应越慢
 
 # ---------- 拐角参数 ----------
 CORNER_DURATION  = 30      # 拐角过渡帧数（越大圆角越平缓，越小越急促，可配置接口）
 CORNER_DEBOUNCE  = 3       # 连续检测到拐角多少帧才确认（防误触，越大越稳定但越迟钝）
-CORNER_COOLDOWN  = 20      # 拐角完成后的冷却帧数（期间禁止检测新拐角，防止旧线段误触发方向反转）
+CORNER_COOLDOWN  = 30      # 拐角完成后的冷却帧数（期间禁止检测新拐角，防止旧线段误触发方向反转）
 
 # ---------- 丢失参数 ----------
 LOST_TOLERANCE = 15        # 连续多少帧检测不到任何色块则判定为线条丢失
@@ -122,15 +122,31 @@ ROIS = [ # [ROI, weight]
         (426, 320, 214, 160, 0.1),# idx 16 右下
        ]
 
-# ===================== 区域分组（基于摄像头坐标系，固定不变）=====================
+# ===================== 区域分组（基于运动方向动态切换）=====================
 # 将17个ROI按方位分组，用于拐角检测时的区域判断
 # 画面坐标系：左上角(0,0)，x向右增大，y向下增大
+# 侧向区域包含拐角ROI（高灵敏度），前方区域仅用中间区域（防误触发）
 
-ZONE_TOP    = [1, 2, 3]          # 上方中间列 —— 检测画面上方的水平线段
-ZONE_BOTTOM = [13, 14, 15]       # 下方中间列 —— 检测画面下方的水平线段
-ZONE_LEFT   = [5, 6, 7]     # 左侧列     —— 检测画面左侧的垂直线段
-ZONE_RIGHT  = [9, 10, 11]   # 右侧列     —— 检测画面右侧的垂直线段
-ZONE_CENTER = [8]         # 中心区域   —— 循线核心区域，判断线条是否居中
+def get_zones(move_dir):
+    """
+    根据当前运动方向返回动态区域分组。
+    - 上下移动时：左右为侧向（含拐角ROI），上下为前方（仅中间列）
+    - 左右移动时：上下为侧向（含拐角ROI），左右为前方（仅中间行）
+    """
+    if move_dir in (DIR_UP, DIR_DOWN):
+        return {
+            'top':    [1, 2, 3],          # 上方中间列 —— 前方
+            'bottom': [13, 14, 15],       # 下方中间列 —— 前方
+            'left':   [0, 5, 6, 12],      # 左侧（含拐角） —— 侧向
+            'right':  [4, 10, 11, 16],    # 右侧（含拐角） —— 侧向
+        }
+    else:  # DIR_LEFT, DIR_RIGHT
+        return {
+            'top':    [0, 1, 2, 4],       # 上方（含拐角） —— 侧向
+            'bottom': [12, 14, 15, 16],   # 下方（含拐角） —— 侧向
+            'left':   [5, 6, 7],          # 左侧中间行 —— 前方
+            'right':  [9, 10, 11],        # 右侧中间行 —— 前方
+        }
 
 
 def dir_to_speed(d):
@@ -289,12 +305,13 @@ try:
 
         # ============ 第二步：区域聚合 ============
         # 将各ROI的检测结果按方位聚合，用于拐角判断
-        # 每个区域只要有任意一个ROI检测到色块，即认为该方向有线
-        top    = any(roi_has_blob[i] for i in ZONE_TOP)     # 上方中间区域有线？
-        bottom = any(roi_has_blob[i] for i in ZONE_BOTTOM)  # 下方中间区域有线？
-        left   = any(roi_has_blob[i] for i in ZONE_LEFT)    # 左侧区域有线？
-        right  = any(roi_has_blob[i] for i in ZONE_RIGHT)   # 右侧区域有线？
-        any_blob = any(roi_has_blob)                         # 画面中任意区域有线？
+        # 根据当前运动方向动态选择区域分组
+        zones = get_zones(move_dir)
+        top    = any(roi_has_blob[i] for i in zones['top'])     # 上方区域有线？
+        bottom = any(roi_has_blob[i] for i in zones['bottom'])  # 下方区域有线？
+        left   = any(roi_has_blob[i] for i in zones['left'])    # 左侧区域有线？
+        right  = any(roi_has_blob[i] for i in zones['right'])   # 右侧区域有线？
+        any_blob = any(roi_has_blob)                             # 画面中任意区域有线？
 
         # ============ 第三步：计算加权质心 ============
         # 质心位置用于对中修正，线条居中时质心接近画面中心(320, 240)
