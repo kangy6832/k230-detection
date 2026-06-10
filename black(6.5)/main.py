@@ -26,6 +26,7 @@ import time, math, os, gc
 from media.sensor import *  # 导入sensor模块，使用摄像头相关接口
 from media.display import * # 导入display模块，使用display相关接口
 from media.media import *   # 导入media模块，使用media相关接口
+from machine import UART, FPIOA
 
 # ===================== 可调参数 =====================
 
@@ -36,6 +37,7 @@ GRAYSCALE_THRESHOLD = [(0, 64)]
 FOLLOW_SPEED    = 0.01     # 正常循线时的前进速度（沿运动方向的主速度）
 CORNER_SPEED    = 0.03     # 拐角过渡时新方向的速度（越大拐角走得越快，可配置接口）
 CENTERING_GAIN  = 0.00005  # 对中修正增益（质心偏移量 × 增益 = 修正速度）
+CENTERING_FILTER_ALPHA = 0.3  # 质心低通滤波系数 (0~1)，越小越平滑但响应越慢
 
 # ---------- 拐角参数 ----------
 CORNER_DURATION  = 30      # 拐角过渡帧数（越大圆角越平缓，越小越急促，可配置接口）
@@ -220,6 +222,14 @@ corner_detect_count = 0          # 连续检测到拐角的帧数（用于防抖
 potential_corner_dir = -1        # 防抖中暂存的拐角方向
 cooldown_frames = 0              # 拐角冷却剩余帧数（>0 时禁止拐角检测，防止旧线段误触发）
 prev_dir = -1                    # 上一次运动方向（拐角前的方向），用于排除旧线段所在区域
+filtered_cx = 320.0              # 滤波后的质心 x，初始为画面中心
+filtered_cy = 240.0              # 滤波后的质心 y，初始为画面中心
+
+# ===================== 串口初始化 =====================
+fpioa = FPIOA()
+fpioa.set_function(44, FPIOA.UART2_TXD)
+fpioa.set_function(45, FPIOA.UART2_RXD)
+uart2 = UART(UART.UART2, baudrate=115200, bits=UART.EIGHTBITS, parity=UART.PARITY_NONE, stop=UART.STOPBITS_ONE)
 
 
 try:
@@ -278,8 +288,11 @@ try:
         if weight_sum > 0:
             center_pos_x = centroid_sum_x / weight_sum
             center_pos_y = centroid_sum_y / weight_sum
+            # 一阶低通滤波：平滑质心抖动
+            filtered_cx = CENTERING_FILTER_ALPHA * center_pos_x + (1 - CENTERING_FILTER_ALPHA) * filtered_cx
+            filtered_cy = CENTERING_FILTER_ALPHA * center_pos_y + (1 - CENTERING_FILTER_ALPHA) * filtered_cy
         else:
-            # 没有检测到任何色块时，质心默认为画面中心（不产生修正）
+            # 没检测到色块时不更新滤波值，保持上一帧结果
             center_pos_x = 320
             center_pos_y = 240
 
@@ -396,17 +409,21 @@ try:
         # ============ 第五步：计算控制量 ============
         # 调用 set_target 计算当前帧的目标运动偏移量
         target = set_target(state, move_dir, corner_new_dir, corner_frames,
-                           center_pos_x, center_pos_y)
+                           filtered_cx, filtered_cy)
 
-        # ============ 第六步：画面显示 ============
+        # ============ 第六步：串口发送数据 ============
+        # 通过UART2发送x, y偏移量，格式: "X:+0.0100 Y:-0.0050\n"
+        x_sign = "+" if target[0] >= 0 else "-"
+        y_sign = "+" if target[1] >= 0 else "-"
+        uart2.write("X:%s%.4f Y:%s%.4f\n" % (x_sign, abs(target[0]), y_sign, abs(target[1])))
+
+        # ============ 第七步：画面显示 ============
         # 第一行：当前状态和运动方向
         img.draw_string_advanced(0, 0, 24,
             "S:%s D:%s" % (STATE_NAMES[state], DIR_NAMES[move_dir]),
             color=(255,255,255), thickness=4)
 
         # 第二行：目标偏移量（X/Y 正负方向清晰显示）
-        x_sign = "+" if target[0] >= 0 else "-"
-        y_sign = "+" if target[1] >= 0 else "-"
         img.draw_string_advanced(0, 24, 24,
             "X:%s%.4f Y:%s%.4f" % (x_sign, abs(target[0]), y_sign, abs(target[1])),
             color=(255,255,255), thickness=4)
@@ -448,9 +465,17 @@ except KeyboardInterrupt as e:
 except BaseException as e:
     print(f"Exception {e}")
 finally:
+    # 关闭串口
+    try:
+        uart2.deinit()
+    except NameError:
+        pass
     # sensor stop run
-    if isinstance(sensor, Sensor):
-        sensor.stop()
+    try:
+        if isinstance(sensor, Sensor):
+            sensor.stop()
+    except NameError:
+        pass
     # deinit display
     Display.deinit()
     os.exitpoint(os.EXITPOINT_ENABLE_SLEEP)
