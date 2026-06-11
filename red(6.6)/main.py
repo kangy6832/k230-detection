@@ -29,14 +29,15 @@ RED_THRESHOLDS = [(20, 100, 20, 127, 10, 127)]
 
 # 目标顶面真实尺寸（毫米）
 # !!! 必须按你的红色物块实际尺寸修改 !!!
-TARGET_WIDTH_MM = 40.0
-TARGET_HEIGHT_MM = 40.0
+TARGET_WIDTH_MM = 19.0
+TARGET_HEIGHT_MM = 34.0
 
-# 640x480(VGA) 示例内参，必须替换成你实际标定值
-FX = 580.0
-FY = 580.0
-CX = 320.0
-CY = 240.0
+# 内参（标定分辨率1280x960，按VGA 640x480缩放）
+# 原始: fx=1587.84, fy=1589.32, cx=643.03, cy=480.87
+FX = 793.92
+FY = 794.66
+CX = 321.51
+CY = 240.43
 
 MIN_AREA_PIXELS = 300
 MERGE_MARGIN = 10
@@ -80,14 +81,18 @@ def is_blob_shape_ok(blob):
 
 
 def draw_pose_info(img, status, pos_mm, fps_value, blob):
-    img.draw_string(4, 4, "status=%s" % status, color=(255, 255, 0))
+    s = 3  # 字体缩放倍数
+    dy = 28
+    y = 4
+    img.draw_string(4, y, "status=%s" % status, color=(255, 255, 0), scale=s)
+    y += dy
     if pos_mm is not None:
-        img.draw_string(4, 20, "x=%.1fmm" % pos_mm[0], color=(255, 0, 0))
-        img.draw_string(4, 36, "y=%.1fmm" % pos_mm[1], color=(255, 0, 0))
-        img.draw_string(4, 52, "z=%.1fmm" % pos_mm[2], color=(255, 0, 0))
+        img.draw_string(4, y, "x=%.1fmm" % pos_mm[0], color=(255, 0, 0), scale=s); y += dy
+        img.draw_string(4, y, "y=%.1fmm" % pos_mm[1], color=(255, 0, 0), scale=s); y += dy
+        img.draw_string(4, y, "z=%.1fmm" % pos_mm[2], color=(255, 0, 0), scale=s); y += dy
     if blob is not None:
-        img.draw_string(4, 68, "w=%d h=%d" % (blob.w(), blob.h()), color=(0, 255, 0))
-    img.draw_string(4, 84, "fps=%.1f" % fps_value, color=(0, 255, 255))
+        img.draw_string(4, y, "w=%d h=%d" % (blob.w(), blob.h()), color=(0, 255, 0), scale=s); y += dy
+    img.draw_string(4, y, "fps=%.1f" % fps_value, color=(0, 255, 255), scale=s)
 
 
 try:
