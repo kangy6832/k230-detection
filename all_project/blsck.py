@@ -473,8 +473,8 @@ try:
         # 每帧固定12字节
         x_sign = 0x2B if target[0] >= 0 else 0x2D  # '+' or '-'
         y_sign = 0x2B if target[1] >= 0 else 0x2D
-        x_val = round(abs(target[0]) * 10000) & 0xFFFF  # 0.0100 → 100, uint16
-        y_val = round(abs(target[1]) * 10000) & 0xFFFF
+        x_val = int(abs(target[0]) * 10000) & 0xFFFF  # 0.0100 → 100, uint16
+        y_val = int(abs(target[1]) * 10000) & 0xFFFF
         frame  = b'\xAA\x55'                          # 包头
         frame += b'\x01'                               # X标识
         frame += bytes([x_sign])                       # X符号
@@ -483,7 +483,6 @@ try:
         frame += bytes([y_sign])                       # Y符号
         frame += struct.pack('<H', y_val)              # Y值(小端uint16)
         frame += b'\x55\xAA'                           # 包尾
-        print("TX:", ' '.join('%02X' % b for b in frame))
         uart2.write(frame)
 
         # ============ 第七步：画面显示 ============

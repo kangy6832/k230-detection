@@ -22,7 +22,7 @@ from media.display import * # 导入display模块，使用display相关接口
 from media.media import *   # 导入media模块，使用meida相关接口
 
 # 红色LAB阈值 [L_min, L_max, A_min, A_max, B_min, B_max]
-threshold = [27, 100, -66, 127, -59, 127]
+threshold = [20, 80, 40, 127, -10, 127]
 
 try:
     sensor = Sensor(width=1280, height=960) # 构建摄像头对象
